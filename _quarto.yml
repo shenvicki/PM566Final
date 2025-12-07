@@ -3,17 +3,18 @@ project:
   output-dir: docs
 
 website:
-  title: "PM566Final"
+  title: "PM566 Final Project"
   navbar:
     left:
       - href: index.qmd
-        text: Home
-      - about.qmd
+        text: "Final Report"
+      - href: data-processing.qmd
+        text: "About the Data"
 
 format:
   html:
     theme:
-      - cosmo
+      - cerulean
       - brand
     css: styles.css
     toc: true

@@ -1,11 +1,459 @@
 ---
-title: "PM566Final"
+title: "Interplay of Socioeconomic and Health Factors: An Analysis of Healthcare Expenditures in the United States" 
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
 ---
 
-This is a Quarto website.
-
-To learn more about Quarto websites visit <https://quarto.org/docs/websites>.
+```{r}
+#| message: false
+library(plotly)
+library(survey)
+library(gt)
+library(dplyr)
+library(tidyr)
+```
 
 ```{r}
-1 + 1
+meps <- read.csv("data/meps.csv")
 ```
+
+# Introduction
+
+In order to improve health systems, address disparities in access and outcomes, and implement policy reforms, it is essential to understand the factors that influence healthcare spending in the United States. For examining healthcare utilization, expenditures, and insurance coverage, one of the most extensive data sets is the Medical Expenditure Panel Survey-Household Component (MEPS-HC). Conducted annually by the Agency for Healthcare Research and Quality (AHRQ), MEPS-HC provide nationally representative information on demographic variables, medical conditions, insurance status, and total healthcare expenditures among non-institutionalized adults. MEPS is appropriate for exploring the ways in which socioeconomic, clinical, and insurance-related factors impact healthcare spending trends since it records both expenditure data and individual-level information.
+
+The **2023 MEPS-HC data set (MEPS-HC 251)** is used in this analysis to look at variables related to adult U.S. healthcare spending. Policymakers and health systems must determine which populations pay the most and the underlying causes of these trends as healthcare costs continue to climb. Historically, a significant portion of national spending has been consumed by issues like the prevalence of chronic diseases, low socioeconomic status, or gaps in insurance coverage. However, the necessity to revisit these correlations using the most recent data is underscored by demographic transitions, the increased frequency of chronic conditions, and ongoing changes in the insurance industry.
+
+The primary research question for this analysis is:
+
+> **What demographic, clinical, and insurance factors are associated with higher total healthcare expenditures among U.S. adults?**
+
+Several sub-analyses were carried out in order to provide a complete answer to this research question. In order to explain the significance of coverage in healthcare spending, this analysis first looks at whether total expenditures vary considerably across insurance types (private, public, and uninsured). Second, it identifies the chronic conditions that have the greatest impact on rising costs, highlighting the clinical factors that lead to expensive care. Third, it provides insight into the social determinants of spending by determining if socioeconomic characteristics, such as income and education, lead to higher or lower expenditures. Last but not least, this analysis looks into whether there are racial disparities in spending, which is an important public health issue considering the well-established injustices in the U.S. healthcare system.
+
+By analyzing these related components, this report uses recent nationally representative data in order to create a current, data-driven knowledge of the factors that influence healthcare spending. It is hoped that the results would assist in identifying populations that are susceptible to excessive spending and will guide policy and intervention improvements that advance efficiency, equity, and improved health outcomes.
+
+# Methods
+
+The 2023 Medical Expenditure Panel Survey-Household Component (MEPS-HC 251), a nationally representative survey conducted by the Agnecy for Healthcare Research and Quality (AHRQ), provided the data used in this analysis. The publicly accessible data set was obtained from the AHRQ MEPS website and imported into R for analysis and cleaning. MEPS-HC is appropriate for investigating the main research question since it offers comprehensive individual-level data on healthcare costs, medical conditions, socioeconomic traits, and insurance coverage.
+
+## Data Preparation and Cleaning
+
+Only adults who were at least 18 years old were included in the sample. In accordance with MEPS data documentation rules, records with missing, negative, or inapplicable values (such as -1, -7, or -9) were flagged as *NA*. In order to facilitate interpretation and maintain consistency across analyses, variables indicating demographic factors (age, sex, race/ethnicity, income group), insurance status (private, public, uninsured), and chronic diseases (diabetes, hypertension, cancer) were given new labels where needed.
+
+The `TOTEXP23` variable, which represents total annual expenditures from all payment sources, was used to record healthcare expenditures. The MEPS Full Year Consolidated Data Codebook was used to identify demographic variables (such as insurance status, chronic diseases, etc.). To account for the complex survey design and guarantee nationally representative findings, MEPS survey weights (`PERWT23F`) were included in all analyses.
+
+Full cleaning and data exploration are provided on the **"About the Data"** page.
+
+## Analysis
+
+The analysis focuses on descriptive comparisons and interpretation of relationships between key predictors and total healthcare expenditures.
+
+1.  Comparing expenditures across insurance types using summary tables and boxplots.
+2.  Identifying which chronic condition (diabetes, cancer, hypertension) has the most costs by calculating weighted expenditures among individuals with each condition.
+3.  Assessing socioeconomic patterns by comparing mean and median expenditures across income and education groups.
+4.  Examining racial/ethnic disparities using grouped summaries of expenditures.
+
+# Results
+
+A total of **15,123** U.S. adults aged 18 and older were included after excluding respondents with missing or invalid data.
+
+## Expenditures by Insurance Type
+
+*Table 1. Total Healthcare Expenditures by Insurance (Weighted)*
+
+```{r}
+weighted_median <- function(x, w) {
+  df <- data.frame(x = x, w = w) |>
+    arrange(x) |>
+    mutate(cum_w = cumsum(w) / sum(w))
+  df$x[which.min(abs(df$cum_w - 0.5))]
+}
+
+table1 <- meps |>
+  filter(!is.na(INSURC23)) |>
+  group_by(INSURC23) |>
+  summarize(
+    weighted_mean_expenditures = weighted.mean(TOTEXP23, PERWT23F, na.rm = TRUE),
+    weighted_median_expenditures = weighted_median(TOTEXP23, PERWT23F),
+    count = n(),
+    .groups = "drop"
+  ) |>
+  gt() |>
+  cols_label(
+    INSURC23 = "Insurance Type",
+    weighted_mean_expenditures = "Weighted Mean ($)",
+    weighted_median_expenditures = "Weighted Median ($)",
+    count = "Count"
+  ) |>
+  tab_header(title = "Weighted Healthcare Expenditures by Insurance Type (2023)")
+
+table1
+```
+
+-   **Sample Count**: The largest group in the sample is those with *Private* insurance, followed by *Public*, and *Uninsured*.
+-   **Highest Mean Expenditure**: Those with *Public* insurance have the highest weighted mean expenditure at \$7,585.31. This is slightly higher than the *Private* insurance group.
+-   **Lowest Mean Expenditure**: The *Uninsured* group has a dramatically lower weighted mean expenditure of \$1,079.14.
+-   The median expenditure for the *Uninsured* is \$0, indicating a high concentration of low or zero expenditure in this group.
+
+*Figure 1. Box Plot Distribution of Total Expenditures by Insurance*
+
+```{r}
+#| warning: false
+zero_counts <- meps |>
+  group_by(INSURC23) |>
+  summarise(
+    zero_percent = mean(TOTEXP23 == 0) * 100
+  )
+
+meps_non_zero <- meps |>
+  filter(TOTEXP23 > 0)
+meps_non_zero$log_TOTEXP23 <- log(meps_non_zero$TOTEXP23)
+
+f1 <- meps_non_zero |>
+  plot_ly(
+    x = ~INSURC23,
+    y = ~log_TOTEXP23,
+    type = "box"
+  ) |>
+  layout(
+    title = "Expenditures by Insurance Type with Non-Zero Costs (Log Scale)",
+    yaxis = list(title = "Log-Transformed Total Expenditures ($)"),
+    xaxis = list(title = "Insurance Type")
+  )
+
+f1
+```
+
+-   **Median Expenditure (Middle Line)**:
+    -   *Public Insurance*: Highest median, around 8.0 on the log scale
+    -   *Private Insurance*: High median, around 7.9 on the log scale
+    -   *Uninsured*: Lowest median, around 6.2 on the log scale
+-   **Interquartile Range (Box Size)**:
+    -   *Public Insurance* has the widest box (largest interquartile range), suggesting the greatest variability in spending for the middle half of this group
+    -   *Uninsured* has the narrowest box, indicating a more tightly clustered middle 50% of spending
+-   **Outliers and Range**: All three insurance groups show significant outliers (individual dots) at the very high and very low ends of the log scale, demonstrating that even within each insurance type, a small number of people incur extremely high or extremely low costs.
+
+## Expenditures by Chronic Condition
+
+*Table 2. Healthcare Expenditures by Chronic Condition*
+
+```{r}
+#| warning: false
+#| message: false
+
+conditions <- c("DIABDX_M18", "HIBPDX", "CANCERDX")
+condition_names <- c(
+  "DIABDX_M18" = "Diabetes",
+  "HIBPDX" = "Hypertension",
+  "CANCERDX" = "Cancer"
+)
+
+meps_design <- svydesign(
+  id = ~VARPSU,
+  strata = ~VARSTR,
+  weights = ~PERWT23F,
+  data = meps,
+  nest = TRUE
+)
+
+weighted_mean <- sapply(conditions, function(cond) {
+  svymean(~TOTEXP23, subset(meps_design, get(cond) == 1), na.rm = TRUE)
+})
+
+weighted_median <- sapply(conditions, function(cond) {
+  svyquantile(
+    ~TOTEXP23,
+    subset(meps_design, get(cond) == 1),
+    quantiles = 0.5,
+    ci = FALSE,
+    na.rm = TRUE
+  )
+})
+
+table2 <- data.frame(
+  condition = condition_names[conditions],
+  weighted_mean_expenditure = as.numeric(weighted_mean),
+  weighted_median_expenditure = as.numeric(weighted_median)
+)
+
+table2 |>
+  gt() |>
+  cols_label(
+    condition = "Chronic Condition",
+    weighted_mean_expenditure = "Weighted Mean ($)",
+    weighted_median_expenditure = "Weighted Median ($)"
+  ) |>
+  tab_header(title = "Weighted Mean Expenditures by Chronic Condition")
+```
+
+-   **Highest Weighted Mean Expenditure**: *Cancer* has the highest weighted mean expenditure at \$20,786.65.
+-   **Lowest Weighted Mean Expenditure**: *Hypertension* (high blood pressure) has the lowest mean expenditure among the three, but is still substantial at \$14,119.85.
+-   **Highest Weighted Median Expenditure**: *Diabetes* has the highest at \$8,842.
+-   **Lowest Weighted Median Expenditure**: *Hypertension* has the lowest at \$4,658.
+
+The difference between the weighted mean and the weighted median for all three conditions is drastic, indicating that in each category, a small number of individuals with very high healthcare expenditures are skewing the mean higher than the median.
+
+The presence of any of these chronic conditions significantly increases an individual's average healthcare cost, with expenditures clustering near or above the \$15,000 mark.
+
+*Figure 2. Lollipop Chart for Chronic Condition Costs*
+
+```{r}
+ggplot(table2, aes(x = reorder(condition, weighted_mean_expenditure))) +
+  geom_segment(aes(xend = condition, y = 0, yend = weighted_mean_expenditure),
+               color = "darkred", linewidth = 1) +
+  geom_segment(aes(xend = condition, y = 0, yend = weighted_median_expenditure),
+               color = "steelblue", linewidth = 1, linetype = "dashed") +
+  geom_point(aes(y = weighted_median_expenditure),
+             size = 4) +
+  coord_flip() +
+  labs(title = "Weighted Mean vs Median Total Expenditures by Chronic Condition (2023)",
+       x = "Chronic Condiiton",
+       y = "Weighted Expenditures ($)",
+       caption = "Red = Mean | Blue = Median") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Expenditures Across Socioeconomic Groups
+
+Weighted mean and median expenditures were compared across income and education categories to understand socioeconomic patterns.
+
+**Income Group**
+
+*Figure 3. Bar Chart for Mean Expenditures by Income Group*
+
+```{r}
+#| message: false
+income_mean <- svyby(
+  ~TOTEXP23,
+  ~POVCAT23,
+  meps_design,
+  svymean,
+  na.rm = TRUE
+)
+
+income_median <- svyby(
+  ~TOTEXP23,
+  ~POVCAT23,
+  design = meps_design,
+  FUN = svyquantile,
+  quantiles = 0.5,
+  se = FALSE,
+  na.rm = TRUE,
+  keep.names = FALSE
+)
+
+names(income_median)[2] <- "MedianEXP"
+
+income_summary <- merge(income_mean, income_median, by = "POVCAT23")
+
+f3 <- ggplot(income_summary, aes(x = POVCAT23, y = TOTEXP23)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = paste0("Mean: $", round(TOTEXP23, 0))),
+            vjust = -0.2, size = 3.5) +
+  geom_text(aes(y = TOTEXP23 + 500,
+                label = paste0("Median: $", round(MedianEXP, 0))),
+            vjust = -0.2, size = 3.2, color = "darkred") +
+  labs(
+    title = "Weighted Mean and Median Health Expenditures by Income Group",
+    x = "Income Group",
+    y = "Expenditures ($)",
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+f3
+```
+
+**Weighted Mean Expenditures**
+
+-   **Highest Expenditure**: The *Near Poor* group had the highest mean health expenditure at \$9,346.
+-   **High Expenditure**: The *High Income* group and the *Poor/Negative* group also show high expenditures.
+-   **Lowest Expenditure**: The *Low Income* and *Middle Income* groups have the lowest and very similar expenditures.
+
+**Weighted Median Expenditures**
+
+-   **Highest Expenditure**: The *High Income* group had the highest median expenditure at \$2,573.
+-   **Lowest Expenditure**: The *Near Poor* group had the lowest median expenditure at \$1,399.
+
+A difference also exists between the mean and median expenditures for all income groups. This difference suggests that in every group, the mean is being pulled higher than the median by a small proportion of individuals with very high healthcare costs.
+
+The *Near Poor* group has the largest difference between the mean and the median, indicating that the highest degree of cost skewness is due to extremely high-cost incidences. The *High Income* group has the largest median, despite having the second-highest mean, suggesting that their typical (median) expenditure is higher than any other group, even though its mean is also being heavily influenced by high-cost situations.
+
+**Education Level**
+
+*Figure 4. Bar Chart for Mean Expenditures by Education Level*
+
+```{r}
+#| warning: false
+edu_mean <- svyby(
+  ~TOTEXP23,
+  ~educ_cat,
+  meps_design,
+  svymean,
+  na.rm = TRUE
+)
+
+edu_median <- svyby(
+  ~TOTEXP23,
+  ~educ_cat,
+  design = meps_design,
+  FUN = svyquantile,
+  quantiles = 0.5,
+  se = FALSE,
+  na.rm = TRUE,
+  keep.names = FALSE
+)
+
+names(edu_median) [2] <- "MedianEXP"
+
+edu_summary <- merge(edu_mean, edu_median, by = "educ_cat")
+
+f4 <- ggplot(edu_summary, aes(x = educ_cat, y = TOTEXP23))+
+  geom_col(fill = "darkorange") +
+  geom_text(aes(label = paste0("Mean: $", round(TOTEXP23, 0))),
+            vjust = -0.3,
+            size = 3.5) +
+  geom_text(aes(y = TOTEXP23 + 500,
+                label = paste0("Median: $", round(MedianEXP, 0))),
+            vjust = -0.3, size = 3.2, color = "darkred") +
+  labs(
+    title = "Weighted Mean and Median Health Expenditures by Education Level",
+    x = "Education Level",
+    y = "Expenditures ($)"
+  ) +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+f4
+```
+
+**Weighted Mean Expenditures**
+
+-   **Highest Expenditure**: The group with the highest education, *Beyond College (17+ years)*, also has the highest mean health expenditure at \$10,350.
+-   **Progressive Increase**: There is a steady progression in expenditures as education levels rise:
+    -   Elementary: \$7,823
+    -   High School: \$7,959
+    -   Some College: \$8,514
+    -   Beyond College: \$10,350
+
+**Weighted Median Expenditure**
+
+-   **Highest Expenditure**: The *Beyond College (17+ years)* group also has the highest weighted median expenditure at \$3,289
+-   The median expenditure also shows a similar consistent increase:
+    -   Elementary: \$914
+    -   High School: \$1,269
+    -   Some College: \$2,403
+    -   Beyond College: \$3,289
+
+Across all education levels, the weighted mean is much higher than the weighted median. This typically indicates that in every group, again, the average expenditure is heavily inflated by a small number of people with extremely high healthcare costs.
+
+## Racial/Ethnic Disparities in Expenditures
+
+*Table 3. Expenditures by Race/Ethnicity (Weighted)*
+
+```{r}
+weighted_means <- svyby(
+  ~TOTEXP23,
+  ~RACETHX,
+  meps_design,
+  svymean,
+  na.rm = TRUE
+)
+
+weighted_medians <- svyby(
+  ~TOTEXP23,
+  ~RACETHX,
+  meps_design,
+  svyquantile,
+  quantiles = 0.5,
+  na.rm = TRUE
+)
+
+table3 <- weighted_means |>
+  select(RACETHX, TOTEXP23) |>
+  rename(Weighted_Mean = TOTEXP23) |>
+  left_join(
+    weighted_medians |>
+      select(RACETHX, TOTEXP23) |>
+      rename(Weighted_Median = TOTEXP23),
+    by = "RACETHX"
+  ) |>
+  gt() |>
+  cols_label(
+    RACETHX = "Race/Ethnicity",
+    Weighted_Mean = "Weighted Mean ($)",
+    Weighted_Median = "Weighted Median ($)"
+  ) |>
+  tab_header(
+    title = "Weighted Healthcare Expenditures by Race/Ethnicity (2023)"
+  )
+
+table3
+```
+
+**Weighted Mean Expenditures**
+
+-   **Highest Mean**: *Non-Hispanic White* individuals had the highest weighted mean expenditure at \$10,246.76.
+-   **Next Highest**: The *Non-Hispanic Black* and the *Other* groups had similar, high average expenditures.
+-   **Lowest Mean**: The *Hispanic* population had the lowest mean expenditure at \$4,681.19.
+
+**Weighted Median Expenditures**
+
+-   **Highest Median**: The *Non-Hispanic White* population also had the highest weighted median expenditure at \$3,027, meaning half of this population spent at least that amount.
+-   **Lowest Median**: The *Hispanic* group had the lowest median expenditure at a remarkably low of \$553.
+
+*Figure 5. Heat Map of Expenditures by Race/Ethnicity and Income*
+
+```{r}
+weighted_heat <- svyby(
+  ~TOTEXP23,
+  ~interaction(RACETHX, POVCAT23),
+  meps_design,
+  svymean,
+  na.rm = TRUE
+) |>
+  as.data.frame()
+
+weighted_heat <- weighted_heat |>
+  separate(`interaction(RACETHX, POVCAT23)`,
+           into = c("RACETHX", "POVCAT23"),
+           sep = "\\.") |>
+  mutate(
+    POVCAT23 = factor(POVCAT23),
+    RACETHX = factor(RACETHX)
+  )
+
+ggplot(weighted_heat, aes(x = POVCAT23, y = RACETHX, fill = TOTEXP23)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "plasma") +
+  labs(title = "Weighted Mean Expenditures by Race/Ethnicity and Income",
+       x = "Income Group",
+       y = "Race/Ethnicity",
+       fill = "Weighted Mean Expenditures ($)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_minimal()
+```
+
+-   The highest weighted mean expenditure (brightest yellow cell) is found among *Non-Hispanic White* individuals in the *Near Poor* income group.
+-   The *Non-Hispanic White* row consistently shows higher mean expenditures compared to the other groups, particularly in the lower income categories.
+-   The lowest mean expenditures (darkest blue/purple) are generally concentrated in the following groups:
+    -   *Hispanic* across all income groups
+    -   *Non-Hispanic Asian* in the *High Income* and *Middle Income* groups
+    -   *Non-Hispanic Black* in the *High Income* and *Middle Income* groups
+
+# Conclusion and Summary
+
+Based on the analysis of health expenditure data across various demographic, clinical, and insurance categories, several key factors are contributing to higher total healthcare expenditures among U.S. adults.
+
+First, having any insurance is associated with higher healthcare expenditure compared to being uninsured. Individuals with **Public** and **Private** insurance had weighted mean expenditures that were over six times higher than those with no insurance. The **Uninsured** group had a weighted median expenditure of \$0, suggesting that at least half of this population had no recorded healthcare spending during this period. This implies a major access barrier or major lack of care management in this group.
+
+Having a chronic condition appears to be a good predictor of high mean expenditures. **Cancer** and **diabetes** had the highest weighted mean expenditures, however, the mean expenditures for all three chronic conditions analyzed were higher than the mean expenditures observed for any income, education, or insurance group, highlighting the dominant role of disease burden in driving costs.
+
+Both education and income levels show patterns of higher spending, especially for **High Income** and **Higher Education** groups, but the trends are different for mean vs. median. There is a clear increase where higher education levels are associated with consistently higher mean and median expenditures. Regarding income level, the **High Income** had the highest median expenditure, but the **Near Poor** group had the highest mean expenditure. This suggests that the average expenditure for the Near Poor is heavily impacted by a small number of extremely high-cost cases, possibly due to poor health management or catastrophic costs for those just above the poverty line.
+
+Weighted expenditures show variation by race/ethnicity, where **Non-Hispanic White** individuals had both the highest weighted mean and weighted median expenditure. This indicates both a higher average cost and a higher typical cost for this group. The **Hispanic** group had both the lowest weighted mean and weighted median expenditure, indicating possible lower utilization or access to care compared to other groups.
+
+This analysis also emphasizes that the **Near Poor** income classification is a specific high-cost group, particularly for **Non-Hispanic White** individuals, making a point that those just above the poverty line are disproportionately affected by high-cost events that drive up the overall average (mean) expenditure.
