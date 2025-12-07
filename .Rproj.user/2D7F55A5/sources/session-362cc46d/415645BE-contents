@@ -1,9 +1,5 @@
 ---
 title: "About the Data"
-format:
-  html:
-    toc: true
-    code-fold: true
 ---
 
 ```{r}
