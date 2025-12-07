@@ -1,0 +1,21 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "PM566 Final Project"
+  navbar:
+    left:
+      - href: index.qmd
+        text: "Final Report"
+      - href: data-processing.qmd
+        text: "About the Data"
+
+format:
+  html:
+    theme: cerulean
+    css: styles.css
+    toc: true
+
+editor: visual
+

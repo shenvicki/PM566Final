@@ -1,0 +1,31 @@
+{
+    "id": "415645BE",
+    "path": "~/Desktop/PM 566/PM566Final/data-processing.qmd",
+    "project_path": "data-processing.qmd",
+    "type": "quarto_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1763437785092.0,
+    "source_on_save": false,
+    "relative_order": 4,
+    "properties": {
+        "rmdVisualMode": "false",
+        "rmdVisualWrapConfigured": "true",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "275,71",
+        "scrollLine": "0",
+        "docOutlineVisible": "1",
+        "rmdVisualModeLocation": "7413:3692.5",
+        "rmdVisualCollapsedChunks": ""
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1765139479,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1765139479774,
+    "read_only": false,
+    "read_only_alternatives": []
+}

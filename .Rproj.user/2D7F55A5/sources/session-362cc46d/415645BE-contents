@@ -1,0 +1,288 @@
+---
+title: "About the Data"
+format:
+  html:
+    toc: true
+    code-fold: true
+---
+
+```{r}
+#| message: false
+library(tidyverse)
+library(haven)
+library(janitor)
+library(dplyr)
+library(ggplot2)
+library(gtsummary)
+library(gt)
+library(knitr)
+library(plotly)
+```
+
+# Data Acquisition
+
+```{r}
+# Read raw data
+meps <- read_dta("~/Downloads/MEPS_2023")
+```
+
+This analysis uses the **2023 Medical Expenditure Panel Survey - Household Component (MEPS-HC)**, commonly referred to as HC-251, which contains annual data on individuals in the U.S. MEPS is administered by the Agency for Healthcare Research and Quality (AHRQ) and provides nationally representative estimates of healthcare utilization, expenditures, insurance coverage, and demographic characteristics.
+
+The data set was acquired directly from the AHRQ MEPS website as a public-use data file. The file was provided in STATA (.dta) format, which was imported into R using `read_dta()`.
+
+## Raw Data Description
+
+The raw HC-251 file contains:
+
+-   **\~19,000 observations**, representing individuals who participated in MEPS across all interview rounds.
+-   Hundreds of variables, including:
+    -   **Demographics**: age (`AGE23`), sex (`SEX`), race/ethnicity (`RACETHX`), education (`EDUCYR`), income categories, marital status.
+    -   **Insurance coverage**: private, public, uninsured indicators (`INSURC23` or `PRVEV23`).
+    -   **Expenditures**: total healthcare expenditures (`TOTEXP23`), and detailed sub-components (hospital, physician, prescription drugs).
+    -   **Chronic conditions**: diabetes, hypertension, cancer, and other conditions referred from ICD-10 and CCS codes (`DIABDX`, `HIBPDX`, `CANCERDX`, etc.).
+    -   **Survey design variables**: person-level weights (`PERWT23F`), strata (`VARSTR`), and primary sampling units (`VARPSU`).
+
+# Data Processing
+
+The following steps were taken to prepare the data set for analysis:
+
+**1. Filtering to Adults**
+
+The data set was restricted to individuals aged 18 and older since the research question is concerned about U.S. adults only.
+
+```{r}
+meps <- subset(meps, AGE23X >= 18)
+```
+
+**2. Selecting Relevant Variables**
+
+Because MEPS contains over 1,000 variables, a subset of variables are required to make the analysis process easier to handle:
+
+-   Total expenditures
+-   Chronic conditions
+    -   *Note*: This analysis narrows chronic conditions to the top 3 most common in the U.S. which are: Diabetes, Cancer, and High Blood Pressure
+-   Insurance coverage status
+-   Demographic characteristics: race/ethnicity, age, sex, income, education
+-   Survey design
+
+```{r}
+vars <- c("TOTEXP23", "RACETHX", "AGE23X", "SEX", "EDUCYR", "INSURC23", "POVCAT23", "DIABDX_M18", "HIBPDX", "CANCERDX", "VARSTR", "VARPSU", "PERWT23F")
+
+meps <- meps[, vars]
+```
+
+**3. Removing Missing or Invalid Values**
+
+MEPS uses negative codes (e.g., -7, -8, -9) to represent missing or inapplicable responses. These were re-coded as `NA`:
+
+```{r}
+meps[meps < 0] <- NA
+```
+
+**4. Creating Categorical Variables**
+
+Some key variables were coded as numerical values, therefore, to make these variables easier to understand, they were re-labeled with their respective name groups.
+
+**Insurance Type**
+
+1.  Any Private
+2.  Public
+3.  Uninsured
+
+```{r}
+meps$INSURC23 <- case_when(
+  meps$INSURC23 == 1 ~ "Private",
+  meps$INSURC23 == 2 ~ "Public",
+  meps$INSURC23 == 3 ~ "Uninsured",
+  TRUE ~ NA_character_
+)
+```
+
+**Race/Ethnicity**
+
+1.  Hispanic
+2.  Non-Hispanic White
+3.  Non-Hispanic Black
+4.  Non-Hispanic Asian
+5.  Other
+
+```{r}
+meps$RACETHX <- case_when(
+  meps$RACETHX == 1 ~ "Hispanic",
+  meps$RACETHX == 2 ~ "Non-Hispanic White",
+  meps$RACETHX == 3 ~ "Non-Hispanic Black",
+  meps$RACETHX == 4 ~ "Non-Hispanic Asian",
+  meps$RACETHX == 5 ~ "Other",
+  TRUE ~ NA_character_
+)
+```
+
+**Education**
+
+-   Elementary
+-   High School
+-   College
+-   Beyond College
+
+```{r}
+#| results: hide
+meps <- meps |>
+  mutate(educ_cat = case_when(
+    EDUCYR >= 1 & EDUCYR <= 8 ~ "Elementary (1-8 years)",
+    EDUCYR >= 9 & EDUCYR <= 12 ~ "High School (9-12 years)",
+    EDUCYR >= 13 & EDUCYR <= 16 ~ "Some College (13-16 years)",
+    EDUCYR >= 17 ~ "Beyond College (17+ years)",
+    TRUE ~ NA_character_
+  ))
+
+meps <- meps |>
+  mutate(educ_cat = factor(educ_cat,
+                           levels = c("Elementary (1-8 years)",
+                                      "High School (9-12 years)",
+                                      "Some College (13-16 years)",
+                                      "Beyond College (17+ years)")))
+```
+
+**Income**
+
+-   Poor/Negative
+-   Near Poor
+-   Low Income
+-   Middle Income
+-   High Income
+
+*Note*: The variable `POVCAT23` was used to evaluate income, which represents family income as a percentage of poverty line.
+
+```{r}
+meps$POVCAT23 <- case_when(
+  meps$POVCAT23 == 1 ~ "Poor/Negative",
+  meps$POVCAT23 == 2 ~ "Near Poor",
+  meps$POVCAT23 == 3 ~ "Low Income",
+  meps$POVCAT23 == 4 ~ "Middle Income",
+  meps$POVCAT23 == 5 ~ "High Income",
+  TRUE ~ NA_character_
+)
+```
+
+**Chronic conditions** were coded as binary 1/2 (Y/N) indicators.
+
+```{r}
+write.csv(meps, "data/meps.csv", row.names = FALSE)
+```
+
+# Exploratory Data Analysis
+
+After cleaning and preparing the MEPS-HC 2023 data set, the final version contains **14 variables** and approximately **15,000** observations. Several exploratory steps were taken to better understand the structure of the data, check for patterns, and identify initial trends that might be useful later in the analysis.
+
+**1. Distribution of Total Expenditures**
+
+```{r}
+ggplot(meps, aes(x = TOTEXP23)) +
+  geom_histogram(bins = 40) +
+  labs(title = "Distribution of Total Health Expenditures (2023)",
+       x = "Total Health Expenditures",
+       y = "Frequency") +
+   theme(plot.title = element_text(hjust = 0.5))
+```
+
+**Observations**:
+
+-   The distribution has a right-skew, meaning many individuals have little to no expenditures.
+-   A small portion of individuals have very high expenditures, given the tail of the histogram, which is expected since only sick individuals will spend more on healthcare.
+
+**2. Overview of Demographic Variables**
+
+Basic summaries of age, sex, race/ethnicity, education, and income were used to understand the sample:
+
+```{r}
+#| message: false
+demo_table <- meps |>
+  select(AGE23X, SEX, RACETHX, educ_cat, POVCAT23) |>
+  mutate(
+    SEX = factor(SEX, labels = c("Male", "Female"))
+  ) |>
+  tbl_summary(
+    type = list(AGE23X ~ "continuous"),
+    label = list(
+      AGE23X ~ "Age",
+      SEX ~ "Sex",
+      RACETHX ~ "Race/Ethnicity",
+      educ_cat ~ "Education",
+      POVCAT23 ~ "Income Group"
+    )
+  ) |>
+  bold_labels()
+
+demo_table
+```
+
+**Observations**:
+
+-   Average age in this data set is 53
+-   Race/ethnicity is unevenly distributed (common for MEPS)
+-   Income and Education have a wide but uneven spread
+
+**3. Insurance Coverage Overview**
+
+Insurance type was explored using simple counts and bar plots.
+
+```{r}
+ggplot(data = subset(meps, !is.na(INSURC23)), aes(x = INSURC23)) +
+  geom_bar() +
+  labs(title = "Distribution of Insurance Types",
+       x = "Insurance Type",
+       y = "Count") +
+   theme(plot.title = element_text(hjust = 0.5))
+```
+
+**4. Initial Look at Chronic Conditions**
+
+Frequency of chronic conditions (`DIABDX_M18`, `HIBPDX`, `CANCERDX`) are summarized in a table:
+
+```{r}
+#| message: false
+meps |>
+  select(DIABDX_M18, HIBPDX, CANCERDX) |>
+  summarise(
+    Diabetes = sum(DIABDX_M18 == 1, na.rm = TRUE),
+    Hypertension = sum(HIBPDX == 1, na.rm = TRUE),
+    Cancer = sum(CANCERDX == 1, na.rm = TRUE)
+  ) |>
+  pivot_longer(everything(), names_to = "Condition", values_to = "Count") |>
+  mutate(Percent = round(Count / nrow(meps) * 100 / 1)) |>
+  kable(caption = "Prevalence of Chronic Conditions (2023)")
+```
+
+**5. Explore Continuous Relationships**
+
+```{r}
+scatter <- meps |>
+  filter(!is.na(AGE23X),
+         !is.na(TOTEXP23),
+         !is.na(INSURC23))
+
+plot_ly(
+  scatter,
+  x = ~AGE23X,
+  y = ~TOTEXP23,
+  color = ~INSURC23,
+  type = "scatter",
+  mode = "markers",
+  hoverinfo = "text",
+  text = ~paste("Age:", AGE23X,
+                "<br>Expenditures:", TOTEXP23,
+                "<br>Insurance:", INSURC23)
+) |>
+  layout(title = "Scatterplot of Age vs Total Healthcare Expenditures",
+         xaxis = list(
+           title = "Age (Years)"),
+         yaxis = list(title = "Total Expenditures ($)"))
+```
+
+**Observations**:
+
+-   There is a general upward trend in total healthcare expenditures as age increases.
+-   Private insurance (green dots) group has high concentration of individuals across the plot, especially at the high end of the expenditure scale.
+-   Public insurance (orange dots) group has individuals who tend to have higher expenditures, particularly in the older age range.
+-   Uninsured (blue dots) group is concentrated almost entirely at the lowest end of the expenditure scale
+-   Extreme outliers are noticeable across the age spectrum, especially in both the Private and Public insurance groups.
